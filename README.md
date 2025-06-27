@@ -37,6 +37,18 @@ npm run dev
 - Bulk actions (duplicate/delete nhiều members)
 - Click vào tên để edit
 
+## Form Validation
+
+Các form sử dụng Shopify React Form với validation rules:
+
+- **Name**: Tối thiểu 2 ký tự
+- **Email**: Format email hợp lệ và bắt buộc
+- **Age**: Từ 18-65 tuổi
+- **Gender**: Bắt buộc chọn (male/female)
+- **Team**: Bắt buộc chọn team
+
+Validation chạy real-time khi user nhập, hiển thị error message ngay lập tức.
+
 ## Troubleshooting
 
 **Navigation lỗi:** Chỉ dùng Polaris `Link` component, không dùng `<a>`
