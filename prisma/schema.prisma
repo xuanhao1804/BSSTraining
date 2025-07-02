@@ -30,3 +30,18 @@ model Session {
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
 }
+
+model PricingRule {
+  id            String   @id
+  name          String
+  priority      Int
+  status        String
+  applyTo       String // all | products | collections | tags
+  productIds    Json?
+  variantIds    Json? // New field for storing specific variant IDs
+  collectionIds Json?
+  tagIds        Json?
+  priceType     String // fixed | amount | percentage
+  amount        Float
+  createdAt     DateTime @default(now())
+}
