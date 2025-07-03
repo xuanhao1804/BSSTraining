@@ -126,5 +126,13 @@
     "age": 18,
     "gender": "male",
     "team": "Team A"
+  },
+  {
+    "id": 24,
+    "name": "sep",
+    "email": "staff12@gmail.com",
+    "age": 18,
+    "gender": "female",
+    "team": "Team A"
   }
 ]

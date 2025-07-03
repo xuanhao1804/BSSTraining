@@ -16,11 +16,14 @@ import {
   Modal,
   Toast,
   Frame,
+  Popover,
+  ActionList,
 } from "@shopify/polaris";
 import {
   EditIcon,
   DuplicateIcon,
   DeleteIcon,
+  MenuVerticalIcon,
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -37,33 +40,142 @@ interface PricingRule {
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
-
   try {
-    // Sử dụng Prisma client thay vì raw SQL
+    // Get shop from authenticated session instead of params
+    const { session } = await authenticate.admin(request);
+    
+    if (!session.shop) {
+      return json({ pricingRules: [], totalCount: 0, currentPage: 1, totalPages: 1 });
+    }
+
+    // Find shop in database
+    const dbShop = await prisma.shop.findUnique({ 
+      where: { shop: session.shop } 
+    });
+    
+    if (!dbShop) {
+      console.error("Shop not found in database:", session.shop);
+      return json({ pricingRules: [], totalCount: 0, currentPage: 1, totalPages: 1 });
+    }
+
+    // Get pagination parameters
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get("page") || "1");
+    const limit = parseInt(url.searchParams.get("limit") || "10");
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const totalCount = await prisma.pricingRule.count();
+
+    // Use Prisma client for pricing rules (they are stored in our database)
     const pricingRules = await prisma.pricingRule.findMany({
+      skip: offset,
+      take: limit,
       orderBy: [
-        { priority: 'desc' },
         { createdAt: 'desc' }
       ]
     });
 
-    return json({ pricingRules });
+    return json({ 
+      pricingRules, 
+      totalCount, 
+      currentPage: page,
+      totalPages: Math.ceil(totalCount / limit)
+    });
   } catch (error) {
     console.error("Failed to load pricing rules:", error);
-    return json({ pricingRules: [] });
+    return json({ 
+      pricingRules: [], 
+      totalCount: 0, 
+      currentPage: 1, 
+      totalPages: 1 
+    });
   }
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  await authenticate.admin(request);
-
-  const formData = await request.formData();
-  const actionType = formData.get("actionType") as string;
-  const ruleId = formData.get("ruleId") as string;
-
   try {
+    // Get shop from authenticated session instead of params
+    const { session } = await authenticate.admin(request);
+    
+    if (!session.shop) {
+      return json(
+        { success: false, message: "No shop in session" },
+        { status: 400 }
+      );
+    }
+
+    // Find shop in database
+    const dbShop = await prisma.shop.findUnique({ 
+      where: { shop: session.shop } 
+    });
+    
+    if (!dbShop) {
+      return json(
+        { success: false, message: "Shop not authorized" },
+        { status: 401 }
+      );
+    }
+
+    const formData = await request.formData();
+    const actionType = formData.get("actionType") as string;
+    const ruleId = formData.get("ruleId") as string;
+    const ruleIds = formData.get("ruleIds") as string; // For bulk actions
+
     switch (actionType) {
+      case "bulkDelete":
+        if (!ruleIds) {
+          return json(
+            { success: false, message: "No rules selected" },
+            { status: 400 }
+          );
+        }
+        
+        const idsToDelete = JSON.parse(ruleIds);
+        await prisma.pricingRule.deleteMany({
+          where: { id: { in: idsToDelete } }
+        });
+        
+        return json({ 
+          success: true, 
+          message: `${idsToDelete.length} pricing rule(s) deleted successfully!` 
+        });
+
+      case "bulkDuplicate":
+        if (!ruleIds) {
+          return json(
+            { success: false, message: "No rules selected" },
+            { status: 400 }
+          );
+        }
+        
+        const idsToDuplicate = JSON.parse(ruleIds);
+        const rulesToDuplicate = await prisma.pricingRule.findMany({
+          where: { id: { in: idsToDuplicate } }
+        });
+        
+        const duplicatedRules = rulesToDuplicate.map(rule => ({
+          id: `pr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name: `${rule.name} (Copy)`,
+          priority: rule.priority,
+          status: "inactive",
+          applyTo: rule.applyTo,
+          productIds: rule.productIds as any,
+          collectionIds: rule.collectionIds as any,
+          tagIds: rule.tagIds as any,
+          priceType: rule.priceType,
+          amount: rule.amount,
+        }));
+        
+        await prisma.pricingRule.createMany({
+          data: duplicatedRules
+        });
+        
+        return json({ 
+          success: true, 
+          message: `${idsToDuplicate.length} pricing rule(s) duplicated successfully!` 
+        });
+
       case "delete":
         await prisma.pricingRule.delete({
           where: { id: ruleId }
@@ -94,7 +206,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             id: newRuleId,
             name: `${originalRule.name} (Copy)`,
             priority: originalRule.priority,
-            status: "draft", // Set duplicated rules to draft by default
+            status: "inactive", // Set duplicated rules to inactive by default
             applyTo: originalRule.applyTo,
             productIds: originalRule.productIds as any,
             collectionIds: originalRule.collectionIds as any,
@@ -125,7 +237,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function PricingRules() {
-  const { pricingRules } = useLoaderData<typeof loader>();
+  const { pricingRules, currentPage, totalPages } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const fetcher = useFetcher();
   const location = useLocation();
@@ -138,6 +250,7 @@ export default function PricingRules() {
   const [toastActive, setToastActive] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [toastError, setToastError] = useState(false);
+  const [bulkActionPopoverActive, setBulkActionPopoverActive] = useState(false);
 
   // Track loading states
   const isLoading = fetcher.state === "submitting" || fetcher.state === "loading";
@@ -152,7 +265,41 @@ export default function PricingRules() {
     selectedResources,
     allResourcesSelected,
     handleSelectionChange,
-  } = useIndexResourceState(pricingRules);
+    clearSelection,
+  } = useIndexResourceState(pricingRules as any[] || []);
+
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('page', page.toString());
+    navigate(url.pathname + url.search);
+  };
+
+  const showToast = (message: string, isError = false) => {
+    setToastMessage(message);
+    setToastError(isError);
+    setToastActive(true);
+  };
+
+  const handleBulkAction = async (actionType: string) => {
+    if (selectedResources.length === 0) {
+      showToast("No rules selected", true);
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("actionType", actionType === "duplicate" ? "bulkDuplicate" : "bulkDelete");
+      formData.append("ruleIds", JSON.stringify(selectedResources));
+      
+      fetcher.submit(formData, { method: "post" });
+      
+      clearSelection();
+      setBulkActionPopoverActive(false);
+    } catch (error) {
+      showToast(`Failed to ${actionType} rules`, true);
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
@@ -160,15 +307,12 @@ export default function PricingRules() {
         return <Badge tone="success">Enable</Badge>;
       case "inactive":
         return <Badge tone="critical">Disable</Badge>;
-      case "draft":
-        return <Badge tone="attention">Draft</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
   };
 
   const handleEdit = (ruleId: string) => {
-    // Navigate to edit page using Remix navigate
     navigate(`/app/pricing_rule/${ruleId}`);
   };
 
@@ -206,7 +350,6 @@ export default function PricingRules() {
         setToastMessage(responseData.message);
         setToastError(false);
         setToastActive(true);
-        // No need to reload page - Remix will automatically revalidate
       } else {
         setToastMessage(responseData.message);
         setToastError(true);
@@ -215,11 +358,54 @@ export default function PricingRules() {
     }
   }, [fetcher.data]);
 
-  const rowMarkup = pricingRules.map((rule: PricingRule, index: number) => {
+  // Bulk actions menu (displayed when items are selected)
+  const bulkActionsMarkup = selectedResources.length > 0 ? (
+    <div style={{
+      position: "absolute",
+      top: "12px",
+      right: "16px",
+      zIndex: 1000,
+    }}>
+      <Popover
+        active={bulkActionPopoverActive}
+        activator={
+          <Button
+            icon={MenuVerticalIcon}
+            onClick={() => setBulkActionPopoverActive(!bulkActionPopoverActive)}
+            accessibilityLabel="More actions"
+            variant="tertiary"
+            size="slim"
+          />
+        }
+        onClose={() => setBulkActionPopoverActive(false)}
+      >
+        <ActionList
+          items={[
+            {
+              content: "Duplicate rules",
+              icon: DuplicateIcon,
+              onAction: () => handleBulkAction("duplicate"),
+            },
+            {
+              content: "Delete rules",
+              icon: DeleteIcon,
+              destructive: true,
+              onAction: () => handleBulkAction("delete"),
+            },
+          ]}
+        />
+      </Popover>
+    </div>
+  ) : null;
+
+  const rowMarkup = (pricingRules as any[] || []).map((rule: PricingRule, index: number) => {
     const actionRuleId = fetcher.formData?.get("ruleId") as string;
     const isCurrentRuleLoading = isLoading && actionRuleId === rule.id;
     const isCurrentRuleDeleting = isCurrentRuleLoading && fetcher.formData?.get("actionType") === "delete";
     const isCurrentRuleDuplicating = isCurrentRuleLoading && fetcher.formData?.get("actionType") === "duplicate";
+    
+    // Calculate row number based on current page
+    const rowNumber = (currentPage - 1) * 10 + index + 1;
     
     return (
       <IndexTable.Row 
@@ -229,6 +415,11 @@ export default function PricingRules() {
         selected={selectedResources.includes(rule.id)}
         tone={isCurrentRuleDeleting ? "critical" : undefined}
       >
+        <IndexTable.Cell>
+          <Text variant="bodyMd" as="span">
+            {rowNumber}
+          </Text>
+        </IndexTable.Cell>
         <IndexTable.Cell>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Text variant="bodyMd" fontWeight="bold" as="span">
@@ -318,7 +509,7 @@ export default function PricingRules() {
   });
 
   const getRuleToDeleteName = () => {
-    const rule = pricingRules.find(r => r.id === ruleToDelete);
+    const rule = (pricingRules as any[] || []).find((r: any) => r?.id === ruleToDelete);
     return rule ? rule.name : "";
   };
 
@@ -356,7 +547,9 @@ export default function PricingRules() {
           <Layout>
             <Layout.Section>
               <Card>
-                {pricingRules.length > 0 ? (
+                {bulkActionsMarkup}
+                <div style={{ position: "relative" }}>
+                  {pricingRules.length > 0 ? (
                   <IndexTable
                     resourceName={resourceName}
                     itemCount={pricingRules.length}
@@ -365,11 +558,19 @@ export default function PricingRules() {
                     }
                     onSelectionChange={handleSelectionChange}
                     headings={[
+                      { title: "No" },
                       { title: "Name" },
                       { title: "Status" },
                       { title: "Priority" },
                       { title: "Actions" },
                     ]}
+                    selectable={true}
+                    pagination={{
+                      hasPrevious: currentPage > 1,
+                      hasNext: currentPage < totalPages,
+                      onNext: () => handlePageChange(currentPage + 1),
+                      onPrevious: () => handlePageChange(currentPage - 1),
+                    }}
                   >
                     {rowMarkup}
                   </IndexTable>
@@ -381,10 +582,10 @@ export default function PricingRules() {
                       onAction: () => navigate("/app/pricing_rule/new"),
                     }}
                     image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                  >
-                    <p>Create your first pricing rule to get started.</p>
-                  </EmptyState>
-                )}
+                  >                      <p>Create your first pricing rule to get started.</p>
+                    </EmptyState>
+                  )}
+                </div>
               </Card>
             </Layout.Section>
           </Layout>

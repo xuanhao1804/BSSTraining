@@ -360,7 +360,7 @@ export default function PricingRuleForm() {
       },
     }),
     status: useField({
-      value: rule?.status || "active",
+      value: rule?.status || "inactive",
       validates: (value) => {
         if (!value) {
           return "Status is required";
@@ -700,7 +700,6 @@ export default function PricingRuleForm() {
   const statusOptions = [
     { label: "Enable", value: "active" },
     { label: "Disable", value: "inactive" },
-    { label: "Draft", value: "draft" },
   ];
 
   const pageTitle = isEdit ? `Edit ${rule?.name || 'Pricing Rule'}` : "Create rule";
