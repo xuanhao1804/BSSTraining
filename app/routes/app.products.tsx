@@ -28,15 +28,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     `;
 
     try {
-      console.log("Fetching tags for product IDs:", body.productIds);
-      
       const response = await admin.graphql(query, {
         variables: { ids: body.productIds }
       });
       
       const result = await response.json();
       const resultData = result as any;
-      console.log("Raw GraphQL result:", JSON.stringify(resultData, null, 2));
       
       if (resultData.errors) {
         console.error("GraphQL errors:", resultData.errors);
@@ -48,7 +45,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
       
       const nodes = resultData.data?.nodes || [];
-      console.log("Extracted nodes:", nodes);
       
       return json({ 
         products: nodes,
@@ -86,8 +82,6 @@ export default function ProductList() {
   // Function để fetch tags từ GraphQL
   const fetchProductTags = async (productIds: string[]) => {
     try {
-      console.log("Sending product IDs to fetch tags:", productIds);
-      
       // Gọi qua action route để authenticate với Shopify
       const response = await fetch("/app/products", {
         method: "POST",
@@ -105,8 +99,6 @@ export default function ProductList() {
       }
 
       const result = await response.json();
-      console.log("Full tags response:", JSON.stringify(result, null, 2));
-      console.log("Products from response:", result.products);
       
       return result.products || [];
     } catch (error) {
@@ -137,7 +129,6 @@ export default function ProductList() {
         // Fetch tags cho các products đã chọn
         const productIds = selectedProducts.map(p => p.id);
         const tagsData = await fetchProductTags(productIds);
-        console.log("tagsData:", tagsData);
 
         // Combine tags với product data
         const productsWithTags = selectedProducts.map(product => {
@@ -149,7 +140,6 @@ export default function ProductList() {
         });
         
         setProducts(productsWithTags);
-        console.log("Selected products with tags:", productsWithTags);
       }
     } catch (error) {
       console.error("ResourcePicker error:", error);
@@ -193,7 +183,7 @@ export default function ProductList() {
                     <ResourceList.Item 
                       id={id} 
                       accessibilityLabel={`View details for ${title}`}
-                      onClick={() => console.log('Product clicked:', id)}
+                      onClick={() => {}}
                       media={featuredImage ? (
                         <img 
                           src={featuredImage.url} 

@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { getCollectionsByIds } from "../utils/api.graphql";
+import { getCollectionsByIds } from "../services/api.graphql";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   if (request.method !== "POST") {

@@ -9,6 +9,7 @@ import {
   Card,
   Divider,
   Spinner,
+  Pagination,
 } from "@shopify/polaris";
 
 interface Product {
@@ -54,6 +55,10 @@ export function ProductPricingDetails({
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const fetchProductsWithPricing = useCallback(async () => {
     setLoading(true);
@@ -73,19 +78,11 @@ export function ProductPricingDetails({
         params.append("tags", selectedTags.join(","));
       }
 
-      console.log("Fetching products with params:", { applyTo, selectedProductIds, selectedCollectionIds, selectedTags });
-      console.log("API URL:", `/api/product-pricing?${params}`);
-
       const response = await fetch(`/api/product-pricing?${params}`);
       const data = await response.json();
 
-      console.log("API response:", data);
-
       if (data.success) {
-        console.log("Setting products:", data.products);
-        console.log("First product structure:", data.products[0]);
         setProducts(data.products);
-        console.log("Products set:", data.products.length);
       } else {
         setError(data.error || "Failed to fetch products");
       }
@@ -101,6 +98,7 @@ export function ProductPricingDetails({
   useEffect(() => {
     if (open) {
       fetchProductsWithPricing();
+      setCurrentPage(1); // Reset to first page when modal opens
     }
   }, [open, fetchProductsWithPricing]);
   // Calculate new price based on price type
@@ -144,31 +142,16 @@ export function ProductPricingDetails({
 
   // Prepare table data inside render to ensure state is updated
   const prepareTableData = () => {
-    const tableRows: string[][] = [];
-    let totalOriginal = 0;
-    let totalModified = 0;
-
-    console.log("Preparing table rows for products:", products.length);
-    console.log("Products data:", products);
-    console.log("Price calculation params:", { priceType, amount });
-
+    // First, create all table rows (variants) for counting
+    const allTableRows: string[][] = [];
+    
     products.forEach((product, index) => {
-      console.log(`Processing product ${index}:`, product);
       if (product.variants && product.variants.length > 0) {
         product.variants.forEach((variant) => {
           const originalPrice = parseFloat(variant.price) || 0;
           const newPrice = calculateNewPrice(variant.price, priceType, amount);
-          console.log(`Price calculation for ${product.title} - ${variant.title}:`, {
-            originalPrice: variant.price,
-            priceType,
-            amount,
-            calculatedNewPrice: newPrice
-          });
-          const difference = newPrice - originalPrice; // Modified - Original (có thể âm hoặc dương)
+          const difference = newPrice - originalPrice;
           const differencePercentage = originalPrice > 0 ? ((difference / originalPrice) * 100).toFixed(1) : "0";
-
-          totalOriginal += originalPrice;
-          totalModified += newPrice;
 
           // Format difference: dương (+$10.00), âm (-$10.00), bằng 0 (-)
           let differenceDisplay = "-";
@@ -177,7 +160,7 @@ export function ProductPricingDetails({
             differenceDisplay = `${sign}${formatCurrency(difference)} (${sign}${differencePercentage}%)`;
           }
 
-          tableRows.push([
+          allTableRows.push([
             product.title,
             variant.title || "Default Title",
             formatCurrency(originalPrice),
@@ -192,9 +175,6 @@ export function ProductPricingDetails({
         const difference = newPrice - originalPrice;
         const differencePercentage = originalPrice > 0 ? ((difference / originalPrice) * 100).toFixed(1) : "0";
 
-        totalOriginal += originalPrice;
-        totalModified += newPrice;
-
         // Format difference
         let differenceDisplay = "-";
         if (Math.abs(difference) > 0.01) {
@@ -202,7 +182,7 @@ export function ProductPricingDetails({
           differenceDisplay = `${sign}${formatCurrency(difference)} (${sign}${differencePercentage}%)`;
         }
 
-        tableRows.push([
+        allTableRows.push([
           product.title,
           "Default Title",
           formatCurrency(originalPrice),
@@ -212,13 +192,23 @@ export function ProductPricingDetails({
       }
     });
 
-    const totalDifference = totalModified - totalOriginal; // Modified - Original
-    const totalDifferencePercentage = totalOriginal > 0 ? ((totalDifference / totalOriginal) * 100).toFixed(1) : "0";
+    // Calculate pagination based on total variants (rows)
+    const totalVariants = allTableRows.length;
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    const endIndex = startIndex + PAGE_SIZE;
+    const paginatedRows = allTableRows.slice(startIndex, endIndex);
+    const totalPages = Math.ceil(totalVariants / PAGE_SIZE);
 
-    return { tableRows, totalOriginal, totalModified, totalDifference, totalDifferencePercentage };
+    return { 
+      tableRows: paginatedRows, 
+      totalPages,
+      startIndex,
+      endIndex,
+      totalVariants
+    };
   };
 
-  const { tableRows, totalOriginal, totalModified, totalDifference, totalDifferencePercentage } = prepareTableData();
+  const { tableRows, totalPages, startIndex, endIndex, totalVariants } = prepareTableData();
 
   const tableHeaders = [
     "Product",
@@ -265,13 +255,8 @@ export function ProductPricingDetails({
                 </Text>
                 <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                   <Badge tone="info">
-                    {`${products.length} product${products.length !== 1 ? 's' : ''} affected`}
+                    {`${totalVariants} variant${totalVariants !== 1 ? 's' : ''} affected`}
                   </Badge>
-                  {Math.abs(totalDifference) > 0.01 && (
-                    <Badge tone={totalDifference > 0 ? "attention" : "success"}>
-                      {`Total difference: ${totalDifference > 0 ? '+' : ''}${formatCurrency(totalDifference)} (${totalDifference > 0 ? '+' : ''}${totalDifferencePercentage}%)`}
-                    </Badge>
-                  )}
                 </div>
               </BlockStack>
             </div>
@@ -285,9 +270,14 @@ export function ProductPricingDetails({
           })() ? (
             <div>
               <BlockStack gap="300">
-                <Text variant="headingMd" as="h3">
-                  Product Details
-                </Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text variant="headingMd" as="h3">
+                    Product Details
+                  </Text>
+                  <Text variant="bodyMd" tone="subdued" as="p">
+                    Showing {startIndex + 1}-{Math.min(endIndex, totalVariants)} of {totalVariants} variants
+                  </Text>
+                </div>
                 
                 <DataTable
                   columnContentTypes={[
@@ -299,30 +289,20 @@ export function ProductPricingDetails({
                   ]}
                   headings={tableHeaders}
                   rows={tableRows}
-                  footerContent={
-                    tableRows.length > 1 ? (
-                      <div style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        padding: '12px 16px',
-                        fontWeight: 'bold',
-                        borderTop: '1px solid #e1e3e5'
-                      }}>
-                        <span>Total ({tableRows.length} items)</span>
-                        <div style={{ display: 'flex', gap: '40px' }}>
-                          <span>{formatCurrency(totalOriginal)}</span>
-                          <span>{formatCurrency(totalModified)}</span>
-                          <span>
-                            {Math.abs(totalDifference) > 0.01 
-                              ? `${totalDifference > 0 ? '+' : ''}${formatCurrency(totalDifference)} (${totalDifference > 0 ? '+' : ''}${totalDifferencePercentage}%)`
-                              : '-'
-                            }
-                          </span>
-                        </div>
-                      </div>
-                    ) : undefined
-                  }
                 />
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '16px' }}>
+                    <Pagination
+                      hasPrevious={currentPage > 1}
+                      onPrevious={() => setCurrentPage(currentPage - 1)}
+                      hasNext={currentPage < totalPages}
+                      onNext={() => setCurrentPage(currentPage + 1)}
+                      label={`Page ${currentPage} of ${totalPages}`}
+                    />
+                  </div>
+                )}
               </BlockStack>
             </div>
           ) : (

@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
-import { getProductsByIds } from "../utils/api.graphql";
+import { getProductsByIds } from "../services/api.graphql";
 
 // Support both GET and POST
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -9,15 +9,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  console.log("=== PRODUCT DETAILS API DEBUG ===");
-  console.log("Request method:", request.method);
-  console.log("Request URL:", request.url);
-  
   try {
     await authenticate.admin(request);
-    console.log("Authentication successful");
   } catch (authError) {
-    console.log("Authentication failed:", authError);
     return json({
       success: false,
       error: "Authentication failed",
@@ -27,9 +21,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   let body;
   try {
     body = await request.json();
-    console.log("Request body:", body);
   } catch (parseError) {
-    console.log("Failed to parse request body:", parseError);
     return json({
       success: false,
       error: "Invalid request body",
@@ -39,10 +31,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { productIds } = body;
 
   try {
-    console.log("ProductIds received:", productIds);
-    
     if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
-      console.log("No valid productIds, returning empty array");
       return json({
         success: true,
         products: [],
@@ -50,9 +39,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
     }
 
-    console.log("Calling getProductsByIds with:", productIds);
     const products = await getProductsByIds(request, productIds);
-    console.log("Products received from GraphQL:", products);
     
     return json({
       success: true,

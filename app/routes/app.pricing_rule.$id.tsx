@@ -56,7 +56,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
             // TODO: Implement variant handling when needed
           } else if (productIds && productIds.length > 0) {
             // Call GraphQL function directly instead of fetch
-            const { getProductsByIds } = await import("../utils/api.graphql");
+            const { getProductsByIds } = await import("../services/api.graphql");
             const products = await getProductsByIds(request, productIds);
             enrichedRule.productDetails = products;
           }
@@ -73,7 +73,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
           
           if (collectionIds.length > 0) {
             // Call GraphQL function directly instead of fetch
-            const { getCollectionsByIds } = await import("../utils/api.graphql");
+            const { getCollectionsByIds } = await import("../services/api.graphql");
             const collections = await getCollectionsByIds(request, collectionIds);
             
             const mappedCollections = collections.map((collection: any) => ({
@@ -352,58 +352,76 @@ export default function PricingRuleForm() {
     dirty,
     // reset,
   } = useForm({
-    fields: {
-      name: useField({
-        value: rule?.name || "",
-        validates: (value) => {
-          if (!value || value.trim().length < 2) {
-            return "Name must be at least 2 characters";
+  fields: {
+    name: useField({
+      value: rule?.name || "",
+      validates: (value:any) => {
+        if (!value || value.trim().length < 2) {
+          return "Name must be at least 2 characters";
+        }
+        if (value.length > 50) {
+          return "Name cannot be longer than 50 characters";
+        }
+        if (!/^[a-zA-Z0-9 ]+$/.test(value)) {
+          return "Name can only contain letters, numbers and spaces";
+        }
+      },
+    }),
+    priority: useField({
+      value: rule?.priority?.toString() || "1",
+      validates: (value) => {
+        const num = parseInt(value);
+        if (!value || isNaN(num)) {
+          return "Priority must be a number";
+        }
+        if (num < 1 || num > 99) {
+          return "Priority must be between 1 and 99";
+        }
+      },
+    }),
+    status: useField({
+      value: rule?.status || "active",
+      validates: (value) => {
+        if (!value) {
+          return "Status is required";
+        }
+      },
+    }),
+    applyTo: useField({
+      value: rule?.applyTo || "all-products",
+      validates: (value) => {
+        if (!value) {
+          return "Apply to selection is required";
+        }
+      },
+    }),
+    priceType: useField({
+      value: rule?.priceType || "apply-price",
+      validates: (value) => {
+        if (!value) {
+          return "Price type is required";
+        }
+      },
+    }),
+    amount: useField({
+      value: rule?.amount?.toString() || "0",
+      validates: (value) => {
+        const num = parseFloat(value);
+        if (isNaN(num)) {
+          return "Amount must be a number";
+        }
+        if (priceType.value === "decrease-percentage") {
+          if (num < 0 || num > 100) {
+            return "Percentage must be between 0 and 100";
           }
-        },
-      }),
-      priority: useField({
-        value: rule?.priority?.toString() || "1",
-        validates: (value) => {
-          const num = parseInt(value);
-          if (!value || isNaN(num) || num < 1) {
-            return "Priority must be at least 1";
+        } else {
+          if (num < 5 || num > 10000000000) {
+            return "Amount must be between 5 and 10,000,000,000";
           }
-        },
-      }),
-      status: useField({
-        value: rule?.status || "active",
-        validates: (value) => {
-          if (!value) {
-            return "Status is required";
-          }
-        },
-      }),
-      applyTo: useField({
-        value: rule?.applyTo || "all-products",
-        validates: (value) => {
-          if (!value) {
-            return "Apply to selection is required";
-          }
-        },
-      }),
-      priceType: useField({
-        value: rule?.priceType || "apply-price",
-        validates: (value) => {
-          if (!value) {
-            return "Price type is required";
-          }
-        },
-      }),
-      amount: useField({
-        value: rule?.amount?.toString() || "0",
-        validates: (value) => {
-          const num = parseFloat(value);
-          if (isNaN(num) || num < 0) {
-            return "Amount must be a valid positive number";
-          }
-        },
-      }),
-    },
+        }
+      },
+    }),
+  },
     onSubmit: async (fieldValues) => {
       // Validate selections based on applyTo
       if (fieldValues.applyTo === "specific-products" && selectedProducts.length === 0) {
@@ -475,8 +493,8 @@ export default function PricingRuleForm() {
           selectedTags: [...selectedTags],
         });
         
-        // Hide SaveBar since changes are now saved
-        app.saveBar.hide(saveBarId);
+        // Note: Don't manually hide SaveBar here - let the useEffect handle it
+        // based on hasUnsavedChanges() after originalState is updated
         
         setSuccessToastActive(true);
         setTimeout(() => {
@@ -520,7 +538,7 @@ export default function PricingRuleForm() {
       // For new rules, set empty state
       setOriginalState({
         name: "",
-        priority: "1",
+        priority: "0",
         status: "active",
         applyTo: "all-products",
         priceType: "apply-price",
@@ -534,8 +552,14 @@ export default function PricingRuleForm() {
 
   // Helper function to check if there are unsaved changes
   const hasUnsavedChanges = useCallback(() => {
-    // Check form fields changes
-    const formChanged = dirty;
+    // Check form fields changes by comparing current values with original
+    const formFieldsChanged = 
+      name.value !== originalState.name ||
+      priority.value !== originalState.priority ||
+      status.value !== originalState.status ||
+      applyTo.value !== originalState.applyTo ||
+      priceType.value !== originalState.priceType ||
+      amount.value !== originalState.amount;
     
     // Check product/collection/tag selection changes
     const productIdsChanged = JSON.stringify(selectedProducts.map(p => p.id).sort()) !== 
@@ -545,17 +569,17 @@ export default function PricingRuleForm() {
     const tagsChanged = JSON.stringify(selectedTags.sort()) !== 
                        JSON.stringify(originalState.selectedTags.sort());
     
-    return formChanged || productIdsChanged || collectionIdsChanged || tagsChanged;
-  }, [dirty, selectedProducts, selectedCollections, selectedTags, originalState]);
+    return formFieldsChanged || productIdsChanged || collectionIdsChanged || tagsChanged;
+  }, [name.value, priority.value, status.value, applyTo.value, priceType.value, amount.value, selectedProducts, selectedCollections, selectedTags, originalState]);
 
-  // Show SaveBar always when form is opened
+  // Show/hide SaveBar based on unsaved changes
   useEffect(() => {
-    app.saveBar.show(saveBarId);
-    
-    return () => {
+    if (hasUnsavedChanges()) {
+      app.saveBar.show(saveBarId);
+    } else {
       app.saveBar.hide(saveBarId);
-    };
-  }, [app.saveBar, saveBarId]);
+    }
+  }, [hasUnsavedChanges, app.saveBar, saveBarId]);
 
   // Helper function to safely get error - not needed with react-form
   // const getError = (field: string) => { ... }
@@ -597,14 +621,15 @@ export default function PricingRuleForm() {
     setSelectedCollections(originalState.selectedCollections);
     setSelectedTags(originalState.selectedTags);
     
-    // Hide save bar
-    app.saveBar.hide(saveBarId);
+    // Note: Don't manually hide SaveBar here - let the useEffect handle it
+    // based on hasUnsavedChanges() after the state updates
   };
 
   const handleNavigation = (path: string) => {
     if (hasUnsavedChanges()) {
-      // Show discard confirmation - App Bridge will handle this
-      app.saveBar.show(saveBarId);
+      // If there are unsaved changes, the SaveBar should already be visible
+      // due to the useEffect logic. Show confirmation dialog or handle navigation blocking.
+      // For now, we'll prevent navigation and let user decide via SaveBar
       return false; // Prevent navigation
     } else {
       navigate(path);
@@ -1129,19 +1154,21 @@ export default function PricingRuleForm() {
             border: 'none',
             borderRadius: '4px',
             padding: '8px 16px',
-            cursor: hasUnsavedChanges() ? 'pointer' : 'not-allowed'
+            cursor: hasUnsavedChanges() ? 'pointer' : 'not-allowed',
+            marginRight: '8px'
           }}
         >
           Save
         </button>
         <button 
           onClick={handleDiscard}
+          disabled={!hasUnsavedChanges()}
           style={{ 
             backgroundColor: 'transparent', 
             border: '1px solid #d1d5db',
             borderRadius: '4px',
             padding: '8px 16px',
-            cursor: 'pointer'
+            cursor: hasUnsavedChanges() ? 'pointer' : 'not-allowed'
           }}
         >
           Discard
@@ -1150,3 +1177,4 @@ export default function PricingRuleForm() {
     </Frame>
   );
 }
+

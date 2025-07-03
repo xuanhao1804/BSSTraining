@@ -154,9 +154,9 @@ export function TagPicker({ selectedTags, onTagsChange }: TagPickerProps) {
     // If a tag was just added and input still has value, clear it
     if (inputValue && selectedTags.some(tag => tag === inputValue.trim())) {
       setInputValue("");
-      updateOptions(allTags, "");
+      setOptions(allTags);
     }
-  }, [selectedTags, inputValue, allTags, updateOptions]);
+  }, [selectedTags, inputValue, allTags]);
 
   return (
     <div style={{ marginTop: '16px' }}>

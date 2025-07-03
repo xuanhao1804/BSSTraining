@@ -20,31 +20,22 @@ import {
   SkeletonBodyText,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
-import { getUser, updateUser, type User } from "../utils/api.client";
+import { getUser, updateUser, type User } from "../services/api.client";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  console.log("=== EDIT USER LOADER START ===");
-  console.log("params:", params);
-  console.log("params.id:", params.id);
-  
   await authenticate.admin(request);
   
   if (!params.id) {
-    console.log("ERROR: No params.id provided");
     throw new Response("User ID is required", { status: 400 });
   }
   
   const userId = parseInt(params.id);
-  console.log("userId parsed:", userId);
-  console.log("=== EDIT USER LOADER END ===");
   
   return json({ userId });
 };
 
 export default function EditUser() {
-  console.log("=== EDIT USER COMPONENT START ===");
   const { userId } = useLoaderData<typeof loader>();
-  console.log("userId from loader:", userId);
   
   const navigate = useNavigate();
   const [toastActive, setToastActive] = useState(false);
@@ -63,19 +54,14 @@ export default function EditUser() {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        console.log("=== LOADING USER DATA ===");
-        console.log("userId:", userId);
         setIsLoading(true);
         const user = await getUser(userId);
-        console.log("user data received:", user);
         setUserData(user);
-        console.log("userData state updated");
       } catch (error) {
         console.error("Failed to load user:", error);
         showToast("Failed to load user data", true);
       } finally {
         setIsLoading(false);
-        console.log("Loading finished");
       }
     };
     
@@ -90,12 +76,7 @@ export default function EditUser() {
     />
   ) : null;
 
-  console.log("=== RENDER CHECK ===");
-  console.log("isLoading:", isLoading);
-  console.log("userData:", userData);
-
   if (isLoading) {
-    console.log("Rendering skeleton page");
     return (
       <Frame>
         <SkeletonPage primaryAction>
@@ -112,7 +93,6 @@ export default function EditUser() {
   }
 
   if (!userData) {
-    console.log("Rendering user not found");
     return (
       <Frame>
         {toastMarkup}
@@ -131,7 +111,6 @@ export default function EditUser() {
     );
   }
 
-  console.log("Rendering edit form");
   return (
     <Frame>
       {toastMarkup}

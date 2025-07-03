@@ -18,7 +18,7 @@ import {
   Frame,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
-import { createUser } from "../utils/api.client";
+import { createUser } from "../services/api.client";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);

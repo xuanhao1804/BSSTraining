@@ -7,6 +7,7 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
+
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
@@ -20,10 +21,25 @@ const shopify = shopifyApp({
     unstable_newEmbeddedAuthStrategy: true,
     removeRest: true,
   },
+hooks: {
+  afterAuth: async ({ session }) => {
+    try {
+      await prisma.shop.upsert({
+        where: { shop: session.shop! },
+        update: { accessToken: session.accessToken! },
+        create: { shop: session.shop!, accessToken: session.accessToken! },
+      });
+    } catch (error) {
+      console.error("❌ Database save FAILED:", error);
+    }
+  },
+},
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
 });
+
+
 
 export default shopify;
 export const apiVersion = ApiVersion.January25;

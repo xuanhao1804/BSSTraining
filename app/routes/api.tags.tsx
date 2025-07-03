@@ -1,46 +1,39 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { getAllProductTags } from "../utils/api.graphql";
-
-// Simple in-memory cache
-const cache = new Map<string, { data: string[], timestamp: number }>();
-const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
+import { authenticate } from "../shopify.server";
+import { getAllProductTags } from "../services/api.graphql";
+import prisma from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
-    const url = new URL(request.url);
-    const searchTerm = url.searchParams.get("search") || "";
-    const cacheKey = `tags_${searchTerm}`;
-
-    // Check cache first
-    const cachedData = cache.get(cacheKey);
-    if (cachedData && Date.now() - cachedData.timestamp < CACHE_DURATION) {
-      return json({ 
-        success: true, 
-        tags: cachedData.data,
-        fromCache: true
-      });
+    // Get shop from authenticated session instead of params
+    const { session } = await authenticate.admin(request);
+    
+    if (!session.shop) {
+      return json({ success: false, error: "No shop in session" }, { status: 400 });
     }
 
-    const tags = await getAllProductTags(request, searchTerm);
-    
-    // Cache the result
-    cache.set(cacheKey, {
-      data: tags,
-      timestamp: Date.now()
-    });
+    const url = new URL(request.url);
+    const search = url.searchParams.get("search");
 
-    return json({ 
-      success: true, 
-      tags: tags,
-      fromCache: false
+    // Find shop in database
+    const dbShop = await prisma.shop.findUnique({ 
+      where: { shop: session.shop } 
     });
-  } catch (error) {
-    console.error("Error in tags API:", error);
-    return json({ 
-      success: false, 
-      error: "Failed to fetch tags",
-      tags: []
-    }, { status: 500 });
+    
+    if (!dbShop) {
+      return json({ success: false, error: "Shop not authorized" }, { status: 401 });
+    }
+
+    // Extract shop name for API call
+    const safeSearch = search === null ? undefined : search;
+    
+    const tags = await getAllProductTags(session.shop, dbShop.accessToken, safeSearch);
+    
+    return json({ success: true, tags });
+  } catch (err) {
+    console.error("❌ Fetch tags failed:", err);
+    
+    return json({ success: false, error: "Failed to fetch tags" }, { status: 500 });
   }
 };

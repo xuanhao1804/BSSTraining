@@ -30,7 +30,7 @@ import {
   deleteUsers as apiDeleteUsers,
   duplicateUsers as apiDuplicateUsers,
   type User,
-} from "../utils/api.client";
+} from "../services/api.client";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 
 export const links = () => [
