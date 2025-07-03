@@ -2,7 +2,7 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useLoaderData, useNavigate, useActionData, useSubmit } from "@remix-run/react";
 import { useState, useEffect, useCallback } from "react";
-import { useAppBridge, SaveBar } from "@shopify/app-bridge-react";
+import { useAppBridge } from "@shopify/app-bridge-react";
 import { useForm, useField } from "@shopify/react-form";
 import {
   Page,
@@ -40,10 +40,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         throw new Response("Pricing rule not found", { status: 404 });
       }
       
-      // Fetch additional details based on rule type
       let enrichedRule: any = { ...rule };
       
-      // Fetch product details if the rule applies to specific products
       if (rule.applyTo === "specific-products" && (rule.productIds || (rule as any).variantIds)) {
         try {
           // Check if we have variantIds first, then fallback to productIds
@@ -52,10 +50,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
                            (rule.productIds ? JSON.parse(rule.productIds as string) : []);
           
           if (variantIds && variantIds.length > 0) {
-            // For now, we don't have a separate API for variants, so skip this case
-            // TODO: Implement variant handling when needed
+            // Skip variant handling for now
           } else if (productIds && productIds.length > 0) {
-            // Call GraphQL function directly instead of fetch
             const { getProductsByIds } = await import("../services/api.graphql");
             const products = await getProductsByIds(request, productIds);
             enrichedRule.productDetails = products;
@@ -66,13 +62,11 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         }
       }
       
-      // Fetch collection details if the rule applies to collections
       if (rule.applyTo === "product-collections" && rule.collectionIds) {
         try {
           const collectionIds = Array.isArray(rule.collectionIds) ? rule.collectionIds : JSON.parse(rule.collectionIds as string);
           
           if (collectionIds.length > 0) {
-            // Call GraphQL function directly instead of fetch
             const { getCollectionsByIds } = await import("../services/api.graphql");
             const collections = await getCollectionsByIds(request, collectionIds);
             
@@ -136,8 +130,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const priceType = formData.get("priceType") as string;
   const amount = parseFloat(formData.get("amount") as string);
   
-  // Validation
-  const errors: Record<string, string> = {};
+      const errors: Record<string, string> = {};
   
     if (!name || name.trim().length < 2) {
     errors.name = "Name must be at least 2 characters";
@@ -163,7 +156,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     errors.amount = "Amount must be a valid positive number";
   }
 
-  // Validate specific selections
   if (applyTo === "specific-products" && (!productIds || productIds === "[]") && (!variantIds || variantIds === "[]")) {
     errors.products = "Please select at least one product or variant";
   }
@@ -181,7 +173,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   }
 
   try {
-    // Parse JSON arrays for IDs
     let parsedProductIds = null;
     let parsedVariantIds = null;
     let parsedCollectionIds = null;
@@ -220,8 +211,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     }
 
     if (isEdit) {
-      // Update existing rule
-      // First get current rule to preserve existing data
       const currentRule = await prisma.pricingRule.findUnique({
         where: { id }
       });
@@ -233,7 +222,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         );
       }
       
-      // Prepare update data - only update what's provided, keep existing values otherwise
       const updateData: any = {
         name: name.trim(),
         priority,
@@ -260,7 +248,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         (updateData as any).variantIds = null;
         updateData.collectionIds = null;
       } else {
-        // "all-products"
         updateData.productIds = null;
         (updateData as any).variantIds = null;
         updateData.collectionIds = null;
@@ -273,7 +260,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       });
       
     } else {
-      // Create new rule
       const ruleId = `pr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       await prisma.pricingRule.create({
@@ -289,11 +275,10 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           tagIds: parsedTagIds,
           priceType,
           amount,
-        } as any, // Cast to any to handle new variantIds field
+        } as any,
       });
     }
 
-    // Return success message instead of immediate redirect
     return json({ 
       success: true, 
       message: isEdit ? "Pricing rule updated successfully!" : "Pricing rule created successfully!" 
@@ -320,11 +305,8 @@ export default function PricingRuleForm() {
   const [searchValue, setSearchValue] = useState("");
   const [showPricingDetails, setShowPricingDetails] = useState(false);
 
-  // Initialize App Bridge and SaveBar ID early
   const app = useAppBridge();
-  const saveBarId = "pricing-rule-save-bar";
 
-  // State to track original values for unsaved changes detection
   const [originalState, setOriginalState] = useState({
     name: "",
     priority: "1",
@@ -337,7 +319,6 @@ export default function PricingRuleForm() {
     selectedTags: [] as string[],
   });
 
-  // Initialize form with useForm hook
   const {
     fields: {
       name,
@@ -350,7 +331,6 @@ export default function PricingRuleForm() {
     submit,
     submitting,
     dirty,
-    // reset,
   } = useForm({
   fields: {
     name: useField({
@@ -423,7 +403,6 @@ export default function PricingRuleForm() {
     }),
   },
     onSubmit: async (fieldValues) => {
-      // Validate selections based on applyTo
       if (fieldValues.applyTo === "specific-products" && selectedProducts.length === 0) {
         return { status: "fail", errors: [{ field: ["products"], message: "Please select at least one product" }] };
       }
@@ -436,10 +415,8 @@ export default function PricingRuleForm() {
         return { status: "fail", errors: [{ field: ["tags"], message: "Please select at least one tag" }] };
       }
 
-      // Create form data for submission
       const formData = new FormData();
       
-      // Add basic fields
       formData.append("name", fieldValues.name);
       formData.append("priority", fieldValues.priority);
       formData.append("status", fieldValues.status);
@@ -447,27 +424,21 @@ export default function PricingRuleForm() {
       formData.append("priceType", fieldValues.priceType);
       formData.append("amount", fieldValues.amount);
       
-      // Add selection fields
       formData.append("productIds", JSON.stringify(selectedProducts.map(p => p.id)));
-      
-      // For simple product selection, don't use variantIds
       formData.append("variantIds", JSON.stringify([]));
       formData.append("collectionIds", JSON.stringify(selectedCollections.map(c => c.id)));
       formData.append("tagIds", JSON.stringify(selectedTags));
 
       try {
-        // Submit using Remix's useSubmit hook
         remixSubmit(formData, {
           method: "post",
           replace: false,
         });
 
-        // Return success to prevent form from handling the response
-        // The action will handle the redirect and toast
         return { status: "success" };
       } catch (error) {
         console.error("Form submission error:", error);
-        setToastActive(true); // Show error toast
+        setToastActive(true);
         return { 
           status: "fail", 
           errors: [{ field: ["general"], message: "Failed to submit form. Please try again." }] 
@@ -476,11 +447,9 @@ export default function PricingRuleForm() {
     },
   });
   
-  // Handle actionData from Remix action
   useEffect(() => {
     if (actionData) {
       if ('success' in actionData && actionData.success) {
-        // Update original state to current values to clear unsaved changes
         setOriginalState({
           name: name.value,
           priority: priority.value,
@@ -493,9 +462,6 @@ export default function PricingRuleForm() {
           selectedTags: [...selectedTags],
         });
         
-        // Note: Don't manually hide SaveBar here - let the useEffect handle it
-        // based on hasUnsavedChanges() after originalState is updated
-        
         setSuccessToastActive(true);
         setTimeout(() => {
           navigate("/app/pricing_rule");
@@ -504,23 +470,19 @@ export default function PricingRuleForm() {
         setToastActive(true);
       }
     }
-  }, [actionData, navigate, name.value, priority.value, status.value, applyTo.value, priceType.value, amount.value, selectedProducts, selectedCollections, selectedTags, app.saveBar, saveBarId]);
+  }, [actionData, navigate, name.value, priority.value, status.value, applyTo.value, priceType.value, amount.value, selectedProducts, selectedCollections, selectedTags]);
 
-  // Set original state when data is loaded (only once, not on every selection change)
   useEffect(() => {
     if (rule && isEdit) {
-      // Load initial selections from rule data
       const initialProducts = rule.productDetails || [];
       const initialCollections = rule.collectionDetails || [];
       const initialTags = Array.isArray(rule.tagIds) ? rule.tagIds : 
                          (rule.tagIds ? JSON.parse(rule.tagIds as string) : []);
       
-      // Set selections first
       setSelectedProducts(initialProducts);
       setSelectedCollections(initialCollections);
       setSelectedTags(initialTags);
       
-      // Then set original state
       const newOriginalState = {
         name: rule.name || "",
         priority: rule.priority?.toString() || "1",
@@ -535,10 +497,9 @@ export default function PricingRuleForm() {
       
       setOriginalState(newOriginalState);
     } else if (!isEdit) {
-      // For new rules, set empty state
-      setOriginalState({
+      const newOriginalState = {
         name: "",
-        priority: "0",
+        priority: "1",
         status: "active",
         applyTo: "all-products",
         priceType: "apply-price",
@@ -546,13 +507,12 @@ export default function PricingRuleForm() {
         selectedProducts: [],
         selectedCollections: [],
         selectedTags: [],
-      });
+      };
+      setOriginalState(newOriginalState);
     }
-  }, [rule, isEdit]); // Remove selectedProducts/Collections/Tags from dependencies
+  }, [rule, isEdit]);
 
-  // Helper function to check if there are unsaved changes
   const hasUnsavedChanges = useCallback(() => {
-    // Check form fields changes by comparing current values with original
     const formFieldsChanged = 
       name.value !== originalState.name ||
       priority.value !== originalState.priority ||
@@ -561,7 +521,6 @@ export default function PricingRuleForm() {
       priceType.value !== originalState.priceType ||
       amount.value !== originalState.amount;
     
-    // Check product/collection/tag selection changes
     const productIdsChanged = JSON.stringify(selectedProducts.map(p => p.id).sort()) !== 
                              JSON.stringify(originalState.selectedProducts.map(p => p.id).sort());
     const collectionIdsChanged = JSON.stringify(selectedCollections.map(c => c.id).sort()) !== 
@@ -569,25 +528,11 @@ export default function PricingRuleForm() {
     const tagsChanged = JSON.stringify(selectedTags.sort()) !== 
                        JSON.stringify(originalState.selectedTags.sort());
     
-    return formFieldsChanged || productIdsChanged || collectionIdsChanged || tagsChanged;
+    const hasChanges = formFieldsChanged || productIdsChanged || collectionIdsChanged || tagsChanged;
+    
+    return hasChanges;
   }, [name.value, priority.value, status.value, applyTo.value, priceType.value, amount.value, selectedProducts, selectedCollections, selectedTags, originalState]);
 
-  // Show/hide SaveBar based on unsaved changes
-  useEffect(() => {
-    if (hasUnsavedChanges()) {
-      app.saveBar.show(saveBarId);
-    } else {
-      app.saveBar.hide(saveBarId);
-    }
-  }, [hasUnsavedChanges, app.saveBar, saveBarId]);
-
-  // Helper function to safely get error - not needed with react-form
-  // const getError = (field: string) => { ... }
-
-  // Helper function to check if there's a general error - not needed with react-form
-  // const hasGeneralError = () => { ... }
-
-  // Get label and prefix based on selected price type
   const getPriceInputConfig = () => {
     switch (priceType.value) {
       case "apply-price":
@@ -603,47 +548,20 @@ export default function PricingRuleForm() {
 
   const priceInputConfig = getPriceInputConfig();
 
-  const handleSave = () => {
-    submit();
-  };
-
-  const handleDiscard = () => {
-    // Reset form to original values
-    name.onChange(originalState.name);
-    priority.onChange(originalState.priority);
-    status.onChange(originalState.status);
-    applyTo.onChange(originalState.applyTo);
-    priceType.onChange(originalState.priceType);
-    amount.onChange(originalState.amount);
-    
-    // Reset selections
-    setSelectedProducts(originalState.selectedProducts);
-    setSelectedCollections(originalState.selectedCollections);
-    setSelectedTags(originalState.selectedTags);
-    
-    // Note: Don't manually hide SaveBar here - let the useEffect handle it
-    // based on hasUnsavedChanges() after the state updates
-  };
-
   const handleNavigation = (path: string) => {
     if (hasUnsavedChanges()) {
-      // If there are unsaved changes, the SaveBar should already be visible
-      // due to the useEffect logic. Show confirmation dialog or handle navigation blocking.
-      // For now, we'll prevent navigation and let user decide via SaveBar
-      return false; // Prevent navigation
+      return false;
     } else {
       navigate(path);
       return true;
     }
   };
   
-  // Handle form submission
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     submit();
   };
 
-  // Auto-submit when App Bridge or form tells us to save
   useEffect(() => {
     if (typeof window !== 'undefined') {
       (window as any).submitPricingRuleForm = () => {
@@ -663,7 +581,6 @@ export default function PricingRuleForm() {
     }
   }, [submit]);
 
-  // Handle keyboard shortcut for save and App Bridge events
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -730,7 +647,6 @@ export default function PricingRuleForm() {
 
   const handleAllProductsChange = () => {
     applyTo.onChange("all-products");
-    // Clear all selections when switching to "all products"
     setSelectedProducts([]);
     setSelectedCollections([]);
     setSelectedTags([]);
@@ -738,27 +654,21 @@ export default function PricingRuleForm() {
 
   const handleSpecificProductsChange = () => {
     applyTo.onChange("specific-products");
-    // Clear other selections when switching to "specific products"
     setSelectedCollections([]);
     setSelectedTags([]);
     
-    // If editing and the original rule had products, restore them
     if (isEdit && rule && rule.applyTo === "specific-products" && originalState.selectedProducts.length > 0) {
       setSelectedProducts(originalState.selectedProducts);
     } else {
-      // For new rules or when original wasn't specific-products, start fresh
       setSelectedProducts([]);
-      // Don't automatically open ResourcePicker - let user click Browse button
     }
   };
 
   const handleProductCollectionsChange = () => {
     applyTo.onChange("product-collections");
-    // Clear other selections when switching to "collections"
     setSelectedProducts([]);
     setSelectedTags([]);
     
-    // If editing and the original rule had collections, restore them
     if (isEdit && rule && rule.applyTo === "product-collections" && originalState.selectedCollections.length > 0) {
       setSelectedCollections(originalState.selectedCollections);
     } else {
@@ -768,11 +678,9 @@ export default function PricingRuleForm() {
 
   const handleProductTagsChange = () => {
     applyTo.onChange("product-tags");
-    // Clear other selections when switching to "tags"
     setSelectedProducts([]);
     setSelectedCollections([]);
     
-    // If editing and the original rule had tags, restore them
     if (isEdit && rule && rule.applyTo === "product-tags" && originalState.selectedTags.length > 0) {
       setSelectedTags(originalState.selectedTags);
     } else {
@@ -784,7 +692,6 @@ export default function PricingRuleForm() {
     setSelectedProducts(selectedProducts.filter(p => p.id !== productId));
   };
 
-  // Filter products based on search
   const filteredProducts = selectedProducts.filter(product =>
     product.title.toLowerCase().includes(searchValue.toLowerCase())
   );
@@ -817,6 +724,7 @@ export default function PricingRuleForm() {
     <Frame>
       {toastMarkup}
       {successToastMarkup}
+
       <Page
         title={pageTitle}
         backAction={{
@@ -1142,38 +1050,6 @@ export default function PricingRuleForm() {
           amount={amount.value}
         />
       </Page>
-
-      {/* Save Bar */}
-      <SaveBar id={saveBarId}>
-        <button 
-          onClick={handleSave}
-          disabled={!hasUnsavedChanges()}
-          style={{ 
-            backgroundColor: hasUnsavedChanges() ? '#008060' : '#b3b3b3', 
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '8px 16px',
-            cursor: hasUnsavedChanges() ? 'pointer' : 'not-allowed',
-            marginRight: '8px'
-          }}
-        >
-          Save
-        </button>
-        <button 
-          onClick={handleDiscard}
-          disabled={!hasUnsavedChanges()}
-          style={{ 
-            backgroundColor: 'transparent', 
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            padding: '8px 16px',
-            cursor: hasUnsavedChanges() ? 'pointer' : 'not-allowed'
-          }}
-        >
-          Discard
-        </button>
-      </SaveBar>
     </Frame>
   );
 }
